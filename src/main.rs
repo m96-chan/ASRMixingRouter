@@ -7,6 +7,8 @@ use std::time::Duration;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::EnvFilter;
 
+const RECOGNITION_BUFFER_CAPACITY: usize = 50;
+
 #[derive(Parser)]
 #[command(name = "voxmux", about = "Audio mixing router with ASR")]
 struct Cli {
@@ -73,6 +75,9 @@ async fn main() -> Result<()> {
         tracing::warn!("no enabled inputs configured");
     }
 
+    // Recognition buffer for TUI display (shared across ASR + broadcast tasks)
+    let recognition_buf = Arc::new(Mutex::new(VecDeque::<String>::new()));
+
     // Set up ASR if configured
     let mut asr_host = None;
     let mut dest_host_handle: Option<voxmux_destination::DestinationHost> = None;
@@ -114,7 +119,11 @@ async fn main() -> Result<()> {
                 .any(|i| !i.destinations.is_empty());
 
             if has_destinations {
-                let mut dest_host = voxmux_destination::DestinationHost::new(result_rx);
+                // Create a forwarder channel: result_rx → forwarder → dest_host
+                let (fwd_tx, fwd_rx) =
+                    tokio::sync::mpsc::unbounded_channel::<voxmux_core::RecognitionResult>();
+
+                let mut dest_host = voxmux_destination::DestinationHost::new(fwd_rx);
 
                 for input_cfg in &enabled_inputs {
                     for route_cfg in &input_cfg.destinations {
@@ -162,8 +171,23 @@ async fn main() -> Result<()> {
 
                 dest_host.start();
                 dest_host_handle = Some(dest_host);
+
+                // Forwarder task: copies to recognition buffer + forwards to DestinationHost
+                let fwd_recog_buf = Arc::clone(&recognition_buf);
+                tokio::spawn(async move {
+                    let mut rx = result_rx;
+                    while let Some(result) = rx.recv().await {
+                        if result.is_final {
+                            let text =
+                                format!("[{}] {}", result.input_id, result.text);
+                            push_recognition(&fwd_recog_buf, text);
+                        }
+                        let _ = fwd_tx.send(result);
+                    }
+                });
             } else {
-                // Fallback: log ASR results when no destinations configured
+                // Fallback: log ASR results + push to recognition buffer
+                let fallback_recog_buf = Arc::clone(&recognition_buf);
                 tokio::spawn(async move {
                     let mut rx = result_rx;
                     while let Some(result) = rx.recv().await {
@@ -173,6 +197,11 @@ async fn main() -> Result<()> {
                             "ASR: {}",
                             result.text,
                         );
+                        if result.is_final {
+                            let text =
+                                format!("[{}] {}", result.input_id, result.text);
+                            push_recognition(&fallback_recog_buf, text);
+                        }
                     }
                 });
             }
@@ -186,6 +215,7 @@ async fn main() -> Result<()> {
     // Keep capture nodes alive for the duration of the program
     let mut _captures = Vec::new();
     let mut input_handles = Vec::new();
+    let mut capture_handles = Vec::new();
 
     for input_cfg in &enabled_inputs {
         tracing::info!(
@@ -212,21 +242,23 @@ async fn main() -> Result<()> {
 
         let asr_tap = tap_senders.remove(&input_cfg.id);
 
-        let capture = voxmux_audio::CaptureNode::new(
+        let (capture, capture_handle) = voxmux_audio::CaptureNode::new(
             &input_device,
             in_prod,
             sample_rate,
             channels,
             buffer_size,
             asr_tap,
+            &input_cfg.id,
         )
         .with_context(|| format!("failed to create capture node for '{}'", input_cfg.id))?;
 
         _captures.push(capture);
+        capture_handles.push(capture_handle);
     }
 
     // Start output node
-    let _output = voxmux_audio::OutputNode::new(
+    let (_output, output_handle) = voxmux_audio::OutputNode::new(
         &output_device,
         out_consumer,
         sample_rate,
@@ -255,13 +287,15 @@ async fn main() -> Result<()> {
     // Capture config data needed by the state broadcast task
     let input_configs: Vec<_> = enabled_inputs
         .iter()
-        .map(|i| (i.id.clone(), i.device_name.clone(), i.enabled))
+        .map(|i| (i.id.clone(), i.device_name.clone()))
         .collect();
     let output_device_name = config.output.device_name.clone();
-    let play_mixed_input = config.output.play_mixed_input;
 
     // Spawn state broadcast task (~30Hz)
     let broadcast_handles = input_handles.clone();
+    let broadcast_capture_handles = capture_handles.clone();
+    let broadcast_output_handle = output_handle.clone();
+    let broadcast_recog_buf = Arc::clone(&recognition_buf);
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_millis(33));
         loop {
@@ -269,23 +303,51 @@ async fn main() -> Result<()> {
             let inputs: Vec<voxmux_core::InputState> = broadcast_handles
                 .iter()
                 .zip(input_configs.iter())
-                .map(|(handle, (id, device_name, enabled))| voxmux_core::InputState {
-                    id: id.clone(),
-                    device_name: device_name.clone(),
-                    enabled: *enabled,
-                    volume: handle.volume(),
-                    muted: handle.is_muted(),
-                    peak_level: 0.0, // proper computation deferred to P6
+                .zip(broadcast_capture_handles.iter())
+                .map(|((handle, (id, device_name)), cap_handle)| {
+                    let status = if !cap_handle.is_enabled() {
+                        voxmux_core::InputStatus::Disabled
+                    } else {
+                        cap_handle.status()
+                    };
+                    voxmux_core::InputState {
+                        id: id.clone(),
+                        device_name: device_name.clone(),
+                        enabled: cap_handle.is_enabled(),
+                        volume: handle.volume(),
+                        muted: handle.is_muted(),
+                        peak_level: handle.peak_level(),
+                        status,
+                    }
                 })
                 .collect();
+
+            // Collect warnings from unhealthy devices
+            let mut warnings = Vec::new();
+            for (cap_handle, (id, _)) in
+                broadcast_capture_handles.iter().zip(input_configs.iter())
+            {
+                if cap_handle.status() == voxmux_core::InputStatus::Error {
+                    warnings.push(format!("Input '{}' stream error", id));
+                }
+            }
+            if broadcast_output_handle.status() == voxmux_core::InputStatus::Error {
+                warnings.push("Output stream error".to_string());
+            }
+
+            let recognitions = broadcast_recog_buf
+                .lock()
+                .map(|q| q.iter().cloned().collect())
+                .unwrap_or_default();
 
             let state = voxmux_core::RouterState {
                 inputs,
                 output: voxmux_core::OutputState {
                     device_name: output_device_name.clone(),
-                    play_mixed_input,
+                    play_mixed_input: broadcast_output_handle.is_playing(),
                 },
-                latest_recognitions: Vec::new(), // populated when ASR integration deepens
+                latest_recognitions: recognitions,
+                warnings,
                 is_running: true,
             };
 
@@ -297,6 +359,8 @@ async fn main() -> Result<()> {
 
     // Spawn command handler task
     let cmd_handles = input_handles.clone();
+    let cmd_capture_handles = capture_handles.clone();
+    let cmd_output_handle = output_handle.clone();
     tokio::spawn(async move {
         while let Some(cmd) = cmd_rx.recv().await {
             match cmd {
@@ -310,16 +374,109 @@ async fn main() -> Result<()> {
                         h.set_muted(muted);
                     }
                 }
-                voxmux_core::UiCommand::SetEnabled { .. } => {
-                    // No-op in P5 — requires capture node stop/start
+                voxmux_core::UiCommand::SetEnabled { input_id, enabled } => {
+                    if let Some(h) =
+                        cmd_capture_handles.iter().find(|h| h.id() == input_id)
+                    {
+                        h.set_enabled(enabled);
+                    }
                 }
-                voxmux_core::UiCommand::SetPlayMixedInput(_) => {
-                    // No-op in P5 — output control deferred
+                voxmux_core::UiCommand::SetPlayMixedInput(play) => {
+                    cmd_output_handle.set_playing(play);
                 }
                 voxmux_core::UiCommand::Quit => {
                     break;
                 }
             }
+        }
+    });
+
+    // Spawn config hot-reload watcher
+    let config_path = cli.config.clone();
+    let reload_input_handles = input_handles.clone();
+    let reload_capture_handles = capture_handles.clone();
+    let reload_output_handle = output_handle.clone();
+    let reload_config = config.clone();
+    tokio::spawn(async move {
+        use notify::{Event, RecursiveMode, Watcher};
+
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
+        let mut watcher = match notify::recommended_watcher(move |res| {
+            if let Ok(event) = res {
+                let _ = tx.send(event);
+            }
+        }) {
+            Ok(w) => w,
+            Err(e) => {
+                tracing::warn!("config watcher failed to start: {}", e);
+                return;
+            }
+        };
+
+        if let Err(e) = watcher.watch(&config_path, RecursiveMode::NonRecursive) {
+            tracing::warn!("failed to watch config file: {}", e);
+            return;
+        }
+
+        tracing::info!("watching {:?} for changes", config_path);
+
+        let mut current_config = reload_config;
+        while let Some(event) = rx.recv().await {
+            if !event.kind.is_modify() {
+                continue;
+            }
+            // Small delay to let file writes complete
+            tokio::time::sleep(Duration::from_millis(100)).await;
+
+            let new_config = match voxmux_core::AppConfig::load_from_file(&config_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!("failed to reload config: {}", e);
+                    continue;
+                }
+            };
+
+            let diff = voxmux_core::ConfigDiff::diff(&current_config, &new_config);
+
+            // Apply reloadable changes
+            for (id, volume) in &diff.volume_changes {
+                if let Some(h) = reload_input_handles.iter().find(|h| h.id() == id) {
+                    h.set_volume(*volume);
+                    tracing::info!("reloaded: input '{}' volume → {}", id, volume);
+                }
+            }
+            for (id, muted) in &diff.mute_changes {
+                if let Some(h) = reload_input_handles.iter().find(|h| h.id() == id) {
+                    h.set_muted(*muted);
+                    tracing::info!("reloaded: input '{}' muted → {}", id, muted);
+                }
+            }
+            if let Some(play) = diff.play_mixed_change {
+                reload_output_handle.set_playing(play);
+                tracing::info!("reloaded: play_mixed_input → {}", play);
+            }
+
+            // Log non-reloadable changes as warnings
+            for warning in &diff.non_reloadable {
+                tracing::warn!("config change ignored: {}", warning);
+            }
+
+            // Apply enabled state from config
+            for new_input in &new_config.input {
+                if let Some(h) = reload_capture_handles.iter().find(|h| h.id() == new_input.id)
+                {
+                    if h.is_enabled() != new_input.enabled {
+                        h.set_enabled(new_input.enabled);
+                        tracing::info!(
+                            "reloaded: input '{}' enabled → {}",
+                            new_input.id,
+                            new_input.enabled,
+                        );
+                    }
+                }
+            }
+
+            current_config = new_config;
         }
     });
 
@@ -342,4 +499,75 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Push a recognition string into the bounded buffer, dropping oldest if full.
+fn push_recognition(buf: &Arc<Mutex<VecDeque<String>>>, text: String) {
+    if let Ok(mut q) = buf.lock() {
+        if q.len() >= RECOGNITION_BUFFER_CAPACITY {
+            q.pop_front();
+        }
+        q.push_back(text);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_recognition_buffer_bounded() {
+        let buf = Arc::new(Mutex::new(VecDeque::<String>::new()));
+        for i in 0..55 {
+            push_recognition(&buf, format!("msg{}", i));
+        }
+        let q = buf.lock().unwrap();
+        assert_eq!(q.len(), RECOGNITION_BUFFER_CAPACITY);
+        // Oldest 5 should have been dropped
+        assert_eq!(q.front().unwrap(), "msg5");
+        assert_eq!(q.back().unwrap(), "msg54");
+    }
+
+    #[tokio::test]
+    async fn test_recognition_forwarder() {
+        let buf = Arc::new(Mutex::new(VecDeque::<String>::new()));
+        let buf_clone = Arc::clone(&buf);
+
+        let (src_tx, mut src_rx) =
+            tokio::sync::mpsc::unbounded_channel::<voxmux_core::RecognitionResult>();
+        let (fwd_tx, mut fwd_rx) =
+            tokio::sync::mpsc::unbounded_channel::<voxmux_core::RecognitionResult>();
+
+        // Simulate forwarder task
+        let handle = tokio::spawn(async move {
+            while let Some(result) = src_rx.recv().await {
+                let text = format!("[{}] {}", result.input_id, result.text);
+                push_recognition(&buf_clone, text);
+                let _ = fwd_tx.send(result);
+            }
+        });
+
+        src_tx
+            .send(voxmux_core::RecognitionResult {
+                text: "hello world".to_string(),
+                input_id: "mic1".to_string(),
+                timestamp: 0.0,
+                is_final: true,
+            })
+            .unwrap();
+
+        drop(src_tx); // Close channel to let forwarder exit
+        handle.await.unwrap();
+
+        // Check buffer
+        let q = buf.lock().unwrap();
+        assert_eq!(q.len(), 1);
+        assert_eq!(q[0], "[mic1] hello world");
+        drop(q);
+
+        // Check forwarded
+        let forwarded = fwd_rx.try_recv().unwrap();
+        assert_eq!(forwarded.text, "hello world");
+        assert_eq!(forwarded.input_id, "mic1");
+    }
 }

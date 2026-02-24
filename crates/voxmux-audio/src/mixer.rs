@@ -8,6 +8,7 @@ use std::sync::Arc;
 pub struct InputControls {
     volume_bits: AtomicU32,
     muted: AtomicBool,
+    peak_bits: AtomicU32,
     id: String,
 }
 
@@ -16,6 +17,7 @@ impl InputControls {
         Self {
             volume_bits: AtomicU32::new(volume.to_bits()),
             muted: AtomicBool::new(muted),
+            peak_bits: AtomicU32::new(0.0_f32.to_bits()),
             id: id.to_string(),
         }
     }
@@ -34,6 +36,14 @@ impl InputControls {
 
     pub fn set_muted(&self, m: bool) {
         self.muted.store(m, Ordering::Relaxed);
+    }
+
+    pub fn peak_level(&self) -> f32 {
+        f32::from_bits(self.peak_bits.load(Ordering::Relaxed))
+    }
+
+    pub fn set_peak(&self, p: f32) {
+        self.peak_bits.store(p.to_bits(), Ordering::Relaxed);
     }
 
     pub fn id(&self) -> &str {
@@ -67,6 +77,10 @@ impl InputHandle {
 
     pub fn set_muted(&self, m: bool) {
         self.controls.set_muted(m);
+    }
+
+    pub fn peak_level(&self) -> f32 {
+        self.controls.peak_level()
     }
 
     pub fn id(&self) -> &str {
@@ -135,10 +149,25 @@ impl Mixer {
                 max_read = n;
             }
 
-            if !input.controls.is_muted() {
+            if input.controls.is_muted() {
+                input.controls.set_peak(0.0);
+            } else {
                 let vol = input.controls.volume();
-                for i in 0..n {
-                    self.mix_buffer[i] += self.read_buffer[i] * vol;
+                if n > 0 {
+                    let mut peak: f32 = 0.0;
+                    for i in 0..n {
+                        let s = self.read_buffer[i] * vol;
+                        self.mix_buffer[i] += s;
+                        let abs = s.abs();
+                        if abs > peak {
+                            peak = abs;
+                        }
+                    }
+                    input.controls.set_peak(peak);
+                } else {
+                    // Decay when no samples available
+                    let prev = input.controls.peak_level();
+                    input.controls.set_peak(prev * 0.85);
                 }
             }
         }
@@ -615,5 +644,99 @@ mod tests {
         for s in &result[..n] {
             assert!((s - 0.5).abs() < 1e-6);
         }
+    }
+
+    // ── Group D: Peak level tracking ────────────────────────────
+
+    #[test]
+    fn test_input_controls_peak_default_zero() {
+        let ctrl = InputControls::new("test", 1.0, false);
+        assert_eq!(ctrl.peak_level(), 0.0);
+    }
+
+    #[test]
+    fn test_input_controls_peak_roundtrip() {
+        let ctrl = InputControls::new("test", 1.0, false);
+        ctrl.set_peak(0.7);
+        assert_eq!(ctrl.peak_level(), 0.7);
+    }
+
+    #[test]
+    fn test_input_handle_peak_level() {
+        let handle = InputHandle::new("h", 1.0, false);
+        assert_eq!(handle.peak_level(), 0.0);
+        handle.controls.set_peak(0.42);
+        assert_eq!(handle.peak_level(), 0.42);
+    }
+
+    #[test]
+    fn test_mixer_peak_single_input() {
+        let (mut mixer, _out) = make_mixer(128, 1024);
+        let cons = feed(&[0.3, -0.8, 0.5], 256);
+        let handle = mixer.add_input("a", cons, 1.0, false);
+        mixer.mix_once();
+        assert!((handle.peak_level() - 0.8).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_mixer_peak_with_gain() {
+        let (mut mixer, _out) = make_mixer(128, 1024);
+        let cons = feed(&[1.0], 256);
+        let handle = mixer.add_input("a", cons, 0.5, false);
+        mixer.mix_once();
+        assert!((handle.peak_level() - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_mixer_peak_muted_is_zero() {
+        let (mut mixer, _out) = make_mixer(128, 1024);
+        let cons = feed(&[1.0], 256);
+        let handle = mixer.add_input("a", cons, 1.0, true);
+        mixer.mix_once();
+        assert_eq!(handle.peak_level(), 0.0);
+    }
+
+    #[test]
+    fn test_mixer_peak_decays_on_empty() {
+        let (mut mixer, _out) = make_mixer(128, 1024);
+        let (mut prod, cons) = HeapRb::<f32>::new(256).split();
+        prod.push_slice(&[1.0]);
+        let handle = mixer.add_input("a", cons, 1.0, false);
+
+        mixer.mix_once(); // peak = 1.0
+        let peak1 = handle.peak_level();
+
+        mixer.mix_once(); // empty → decay
+        let peak2 = handle.peak_level();
+
+        assert!(peak2 < peak1, "peak should decay: {} < {}", peak2, peak1);
+        assert!((peak2 - peak1 * 0.85).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_mixer_peak_multiple_inputs_independent() {
+        let (mut mixer, _out) = make_mixer(128, 1024);
+        let cons_a = feed(&[0.3], 256);
+        let cons_b = feed(&[0.9], 256);
+        let ha = mixer.add_input("a", cons_a, 1.0, false);
+        let hb = mixer.add_input("b", cons_b, 1.0, false);
+        mixer.mix_once();
+        assert!((ha.peak_level() - 0.3).abs() < 1e-6);
+        assert!((hb.peak_level() - 0.9).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_mixer_peak_updates_each_cycle() {
+        let (mut mixer, _out) = make_mixer(128, 1024);
+        let (mut prod, cons) = HeapRb::<f32>::new(256).split();
+        prod.push_slice(&[0.5]);
+        let handle = mixer.add_input("a", cons, 1.0, false);
+
+        mixer.mix_once();
+        assert!((handle.peak_level() - 0.5).abs() < 1e-6);
+
+        prod.push_slice(&[0.9]);
+        mixer.mix_once();
+        assert!((handle.peak_level() - 0.9).abs() < 1e-6);
     }
 }

@@ -1,3 +1,12 @@
+/// Health status for an input or output device.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum InputStatus {
+    #[default]
+    Ok,
+    Error,
+    Disabled,
+}
+
 /// State of a single audio input, for TUI display.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct InputState {
@@ -7,6 +16,7 @@ pub struct InputState {
     pub volume: f32,
     pub muted: bool,
     pub peak_level: f32,
+    pub status: InputStatus,
 }
 
 /// State of the audio output, for TUI display.
@@ -31,6 +41,7 @@ pub struct RouterState {
     pub inputs: Vec<InputState>,
     pub output: OutputState,
     pub latest_recognitions: Vec<String>,
+    pub warnings: Vec<String>,
     pub is_running: bool,
 }
 
@@ -66,6 +77,24 @@ mod tests {
         assert_eq!(input.peak_level, 0.0);
         assert!(input.id.is_empty());
         assert!(input.device_name.is_empty());
+        assert_eq!(input.status, InputStatus::Ok);
+    }
+
+    #[test]
+    fn test_input_status_default_ok() {
+        assert_eq!(InputStatus::default(), InputStatus::Ok);
+    }
+
+    #[test]
+    fn test_input_state_has_status() {
+        let input = InputState::default();
+        assert_eq!(input.status, InputStatus::Ok);
+    }
+
+    #[test]
+    fn test_router_state_has_warnings() {
+        let state = RouterState::default();
+        assert!(state.warnings.is_empty());
     }
 
     #[test]
@@ -88,12 +117,14 @@ mod tests {
                 volume: 0.8,
                 muted: false,
                 peak_level: 0.5,
+                status: InputStatus::Ok,
             }],
             output: OutputState {
                 device_name: "speakers".to_string(),
                 play_mixed_input: true,
             },
             latest_recognitions: vec!["hello".to_string()],
+            warnings: Vec::new(),
             is_running: true,
         };
         let cloned = state.clone();

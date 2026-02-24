@@ -1,10 +1,10 @@
 [package]
-name = "asr-engine"
+name = "voxmux-engine"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-asr-core = { workspace = true }
+voxmux-core = { workspace = true }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 tracing = { workspace = true }

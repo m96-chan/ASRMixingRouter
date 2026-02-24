@@ -1,5 +1,5 @@
 use crate::engine_trait::AsrEngine;
-use asr_core::AsrError;
+use voxmux_core::AsrError;
 use std::collections::HashMap;
 
 pub struct PluginRegistry {

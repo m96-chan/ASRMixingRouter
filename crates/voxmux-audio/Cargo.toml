@@ -1,10 +1,10 @@
 [package]
-name = "asr-audio"
+name = "voxmux-audio"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-asr-core = { workspace = true }
+voxmux-core = { workspace = true }
 cpal = { workspace = true }
 ringbuf = { workspace = true }
 tracing = { workspace = true }

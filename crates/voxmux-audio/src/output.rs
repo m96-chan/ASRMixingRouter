@@ -1,4 +1,4 @@
-use asr_core::AudioError;
+use voxmux_core::AudioError;
 use cpal::traits::DeviceTrait;
 use cpal::{Device, SampleRate, Stream, StreamConfig};
 use ringbuf::traits::Consumer;

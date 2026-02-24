@@ -1,5 +1,5 @@
-use asr_core::AudioChunk;
-use asr_engine::{AsrHost, PluginRegistry};
+use voxmux_core::AudioChunk;
+use voxmux_engine::{AsrHost, PluginRegistry};
 
 #[tokio::test]
 async fn test_full_pipeline_null_engine() {

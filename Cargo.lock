@@ -90,67 +90,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
-name = "asr-audio"
-version = "0.1.0"
-dependencies = [
- "asr-core",
- "cpal",
- "ringbuf",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "asr-core"
-version = "0.1.0"
-dependencies = [
- "regex",
- "serde",
- "thiserror 2.0.18",
- "toml",
- "tracing",
-]
-
-[[package]]
-name = "asr-destination"
-version = "0.1.0"
-
-[[package]]
-name = "asr-engine"
-version = "0.1.0"
-dependencies = [
- "asr-core",
- "async-trait",
- "thiserror 2.0.18",
- "tokio",
- "toml",
- "tracing",
-]
-
-[[package]]
-name = "asr-mixing-router"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "asr-audio",
- "asr-core",
- "asr-engine",
- "clap",
- "tokio",
- "toml",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "asr-router"
-version = "0.1.0"
-
-[[package]]
-name = "asr-tui"
-version = "0.1.0"
-
-[[package]]
 name = "async-trait"
 version = "0.1.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1210,6 +1149,67 @@ name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
+
+[[package]]
+name = "voxmux"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "voxmux-audio",
+ "voxmux-core",
+ "voxmux-engine",
+]
+
+[[package]]
+name = "voxmux-audio"
+version = "0.1.0"
+dependencies = [
+ "cpal",
+ "ringbuf",
+ "tokio",
+ "tracing",
+ "voxmux-core",
+]
+
+[[package]]
+name = "voxmux-core"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "thiserror 2.0.18",
+ "toml",
+ "tracing",
+]
+
+[[package]]
+name = "voxmux-destination"
+version = "0.1.0"
+
+[[package]]
+name = "voxmux-engine"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "tracing",
+ "voxmux-core",
+]
+
+[[package]]
+name = "voxmux-router"
+version = "0.1.0"
+
+[[package]]
+name = "voxmux-tui"
+version = "0.1.0"
 
 [[package]]
 name = "walkdir"

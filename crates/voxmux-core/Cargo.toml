@@ -1,5 +1,5 @@
 [package]
-name = "asr-core"
+name = "voxmux-core"
 version = "0.1.0"
 edition = "2021"
 

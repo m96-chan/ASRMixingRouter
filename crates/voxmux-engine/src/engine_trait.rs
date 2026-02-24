@@ -1,4 +1,4 @@
-use asr_core::{AsrError, AudioChunk, RecognitionResult};
+use voxmux_core::{AsrError, AudioChunk, RecognitionResult};
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 

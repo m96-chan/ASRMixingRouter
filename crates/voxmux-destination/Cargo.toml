@@ -1,5 +1,5 @@
 [package]
-name = "asr-tui"
+name = "voxmux-destination"
 version = "0.1.0"
 edition = "2021"
 

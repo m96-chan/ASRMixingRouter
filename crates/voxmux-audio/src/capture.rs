@@ -1,4 +1,4 @@
-use asr_core::{AudioChunk, AudioError};
+use voxmux_core::{AudioChunk, AudioError};
 use cpal::traits::DeviceTrait;
 use cpal::{Device, SampleRate, Stream, StreamConfig};
 use ringbuf::traits::Producer;
@@ -59,7 +59,7 @@ impl CaptureNode {
 
 #[cfg(test)]
 mod tests {
-    use asr_core::AudioChunk;
+    use voxmux_core::AudioChunk;
     use tokio::sync::mpsc;
 
     #[test]

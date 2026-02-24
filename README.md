@@ -2,6 +2,8 @@
 
 A Rust application that mixes multiple audio input devices for speaker output while independently running ASR (Automatic Speech Recognition) on each input and routing the recognized text to multiple destinations (e.g., Discord). Controllable via a TUI during runtime. Supports macOS and Linux.
 
+Designed for scenarios such as routing multiple radio receivers (e.g., license-free radios, digital simplex radios) connected to the PC via 3.5mm audio jacks, where each receiver's audio is captured as a separate input device.
+
 ## Data Flow
 
 ```

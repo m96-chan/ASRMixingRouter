@@ -6,6 +6,12 @@ pub struct DeviceManager {
     host: Host,
 }
 
+impl Default for DeviceManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DeviceManager {
     pub fn new() -> Self {
         Self {

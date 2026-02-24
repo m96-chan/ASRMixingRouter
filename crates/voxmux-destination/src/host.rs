@@ -86,7 +86,9 @@ impl DestinationHost {
 
     pub async fn shutdown(&mut self) {
         if let Some(handle) = self.task_handle.take() {
-            let _ = handle.await;
+            if let Err(e) = handle.await {
+                tracing::error!("destination routing task panicked: {e}");
+            }
         }
     }
 }

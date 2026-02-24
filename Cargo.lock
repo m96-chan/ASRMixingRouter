@@ -1585,7 +1585,6 @@ dependencies = [
 name = "voxmux-core"
 version = "0.1.0"
 dependencies = [
- "notify",
  "regex",
  "serde",
  "thiserror 2.0.18",
@@ -1616,10 +1615,6 @@ dependencies = [
  "tracing",
  "voxmux-core",
 ]
-
-[[package]]
-name = "voxmux-router"
-version = "0.1.0"
 
 [[package]]
 name = "voxmux-tui"

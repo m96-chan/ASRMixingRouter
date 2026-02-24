@@ -1,9 +1,11 @@
 pub mod config;
 pub mod error;
+pub mod tui_types;
 pub mod types;
 
 pub use config::AppConfig;
 pub use error::{AsrError, AudioError, ConfigError, DestinationError};
+pub use tui_types::{InputState, OutputState, RouterState, UiCommand};
 pub use types::{AudioChunk, RecognitionResult, TextMetadata};
 
 #[cfg(test)]

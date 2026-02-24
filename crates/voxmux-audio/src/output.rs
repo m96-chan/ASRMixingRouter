@@ -7,6 +7,9 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use voxmux_core::InputStatus;
 
+const STATUS_OK: u8 = 0;
+const STATUS_ERROR: u8 = 1;
+
 // ── OutputHandle ──────────────────────────────────────────────
 
 #[derive(Clone)]
@@ -26,7 +29,7 @@ impl OutputHandle {
 
     pub fn status(&self) -> InputStatus {
         match self.status.load(Ordering::Relaxed) {
-            1 => InputStatus::Error,
+            STATUS_ERROR => InputStatus::Error,
             _ => InputStatus::Ok,
         }
     }
@@ -55,12 +58,12 @@ impl OutputNode {
         let consumer = Arc::new(Mutex::new(consumer));
         let playing = Arc::new(AtomicBool::new(true));
         let playing_flag = Arc::clone(&playing);
-        let status = Arc::new(AtomicU8::new(0));
+        let status = Arc::new(AtomicU8::new(STATUS_OK));
         let status_flag = Arc::clone(&status);
 
         let err_callback = move |err: cpal::StreamError| {
             tracing::error!("output stream error: {}", err);
-            status_flag.store(1, Ordering::Relaxed); // Error
+            status_flag.store(STATUS_ERROR, Ordering::Relaxed);
         };
 
         let stream = device
@@ -97,7 +100,7 @@ mod tests {
     fn make_output_handle() -> OutputHandle {
         OutputHandle {
             playing: Arc::new(AtomicBool::new(true)),
-            status: Arc::new(AtomicU8::new(0)),
+            status: Arc::new(AtomicU8::new(STATUS_OK)),
         }
     }
 

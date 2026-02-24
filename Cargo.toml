@@ -5,7 +5,6 @@ members = [
     "crates/voxmux-engine",
     "crates/voxmux-destination",
     "crates/voxmux-tui",
-    "crates/voxmux-router",
 ]
 resolver = "2"
 
@@ -32,7 +31,6 @@ voxmux-audio = { path = "crates/voxmux-audio" }
 voxmux-engine = { path = "crates/voxmux-engine" }
 voxmux-destination = { path = "crates/voxmux-destination" }
 voxmux-tui = { path = "crates/voxmux-tui" }
-voxmux-router = { path = "crates/voxmux-router" }
 
 [package]
 name = "voxmux"

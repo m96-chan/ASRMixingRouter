@@ -8,6 +8,10 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use voxmux_core::InputStatus;
 
+const STATUS_OK: u8 = 0;
+const STATUS_ERROR: u8 = 1;
+const STATUS_DISABLED: u8 = 2;
+
 // ── CaptureHandle ─────────────────────────────────────────────
 
 #[derive(Clone)]
@@ -28,17 +32,17 @@ impl CaptureHandle {
 
     pub fn status(&self) -> InputStatus {
         match self.status.load(Ordering::Relaxed) {
-            1 => InputStatus::Error,
-            2 => InputStatus::Disabled,
+            STATUS_ERROR => InputStatus::Error,
+            STATUS_DISABLED => InputStatus::Disabled,
             _ => InputStatus::Ok,
         }
     }
 
     pub fn set_status(&self, s: InputStatus) {
         let v = match s {
-            InputStatus::Ok => 0,
-            InputStatus::Error => 1,
-            InputStatus::Disabled => 2,
+            InputStatus::Ok => STATUS_OK,
+            InputStatus::Error => STATUS_ERROR,
+            InputStatus::Disabled => STATUS_DISABLED,
         };
         self.status.store(v, Ordering::Relaxed);
     }
@@ -73,12 +77,12 @@ impl CaptureNode {
         let producer = Arc::new(Mutex::new(producer));
         let enabled = Arc::new(AtomicBool::new(true));
         let enabled_flag = Arc::clone(&enabled);
-        let status = Arc::new(AtomicU8::new(0));
+        let status = Arc::new(AtomicU8::new(STATUS_OK));
         let status_flag = Arc::clone(&status);
 
         let err_callback = move |err: cpal::StreamError| {
             tracing::error!("capture stream error: {}", err);
-            status_flag.store(1, Ordering::Relaxed); // Error
+            status_flag.store(STATUS_ERROR, Ordering::Relaxed);
         };
 
         let stream = device
@@ -124,7 +128,7 @@ mod tests {
     fn make_capture_handle(id: &str) -> CaptureHandle {
         CaptureHandle {
             enabled: Arc::new(AtomicBool::new(true)),
-            status: Arc::new(AtomicU8::new(0)),
+            status: Arc::new(AtomicU8::new(STATUS_OK)),
             id: id.to_string(),
         }
     }

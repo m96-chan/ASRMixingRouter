@@ -30,8 +30,7 @@ voxmux/
 │   ├── voxmux-audio/       # Audio capture, mixer, output (cpal + ringbuf)
 │   ├── voxmux-engine/      # ASR plugin host + whisper integration
 │   ├── voxmux-destination/ # Destination plugin host + discord integration
-│   ├── voxmux-tui/         # TUI (ratatui + crossterm)
-│   └── voxmux-router/      # Pipeline construction & routing
+│   └── voxmux-tui/         # TUI (ratatui + crossterm)
 └── src/main.rs             # Binary entry point
 ```
 
@@ -44,7 +43,6 @@ voxmux/
 | `voxmux-engine` | `AsrEngine` trait, plugin registry, and whisper-rs integration (feature-gated) |
 | `voxmux-destination` | `Destination` trait, plugin registry, and Discord integration via serenity (feature-gated) |
 | `voxmux-tui` | Terminal UI with ratatui + crossterm — dashboard, input/output controls, and log viewer |
-| `voxmux-router` | Orchestrates the full pipeline: config loading, device setup, ASR dispatch, text routing, and TUI communication |
 
 ## Core Traits
 
@@ -163,43 +161,44 @@ Communication between the TUI and the router:
 | [whisper-rs](https://crates.io/crates/whisper-rs) | Whisper ASR engine (feature-gated) |
 | [serenity](https://crates.io/crates/serenity) | Discord bot (feature-gated) |
 | [async-trait](https://crates.io/crates/async-trait) | Async trait support |
+| [notify](https://crates.io/crates/notify) | Filesystem watcher for config hot-reload |
 | [clap](https://crates.io/crates/clap) | CLI argument parsing |
 
 ## Roadmap
 
-### Phase 1: Foundation
+### Phase 1: Foundation ✅
 - Cargo workspace and crate scaffolding
 - Core types: config schema, error types, audio primitives
 - Single input → speaker output passthrough
 
-### Phase 2: Multi-Input Mixing
+### Phase 2: Multi-Input Mixing ✅
 - N-to-1 mixer with gain/mute per input
 - Concurrent multi-device capture
 - Real-time volume/mute control via atomics
 
-### Phase 3: ASR Integration
+### Phase 3: ASR Integration ✅
 - `AsrEngine` trait and plugin registry
 - ASR tap on each capture node
 - whisper-rs engine integration
 
-### Phase 4: Destination Routing
+### Phase 4: Destination Routing ✅
 - `Destination` trait and plugin registry
 - Config-driven routing table
 - File destination (for testing)
 - Discord destination (serenity)
 - Per-destination prefix support
 
-### Phase 5: TUI
+### Phase 5: TUI ✅
 - Event loop and application state
 - Four-tab layout (Dashboard / Inputs / Outputs / Logs)
 - VU meters and volume sliders
 - Bidirectional TUI ↔ Router communication
 
-### Phase 6: Polish
-- Robust error handling and recovery
-- Device disconnect/reconnect handling
-- Config hot-reload
-- CI for macOS and Linux
+### Phase 6: Polish ✅
+- Peak level tracking and health status
+- Input/output handles with enable/disable controls
+- ASR result forwarding to TUI
+- Config hot-reload via filesystem watcher
 
 ## License
 

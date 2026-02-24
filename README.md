@@ -1,4 +1,4 @@
-# ASRMixingRouter
+# voxmux
 
 A Rust application that mixes multiple audio input devices for speaker output while independently running ASR (Automatic Speech Recognition) on each input and routing the recognized text to multiple destinations (e.g., Discord). Controllable via a TUI during runtime. Supports macOS and Linux.
 
@@ -22,16 +22,16 @@ Each input device feeds into a shared mixer for speaker output. Simultaneously, 
 The project is organized as a Cargo workspace:
 
 ```
-ASRMixingRouter/
+voxmux/
 ├── Cargo.toml              # Workspace root
 ├── config.example.toml
 ├── crates/
-│   ├── asr-core/           # Common traits, types, config, errors
-│   ├── asr-audio/          # Audio capture, mixer, output (cpal + ringbuf)
-│   ├── asr-engine/         # ASR plugin host + whisper integration
-│   ├── asr-destination/    # Destination plugin host + discord integration
-│   ├── asr-tui/            # TUI (ratatui + crossterm)
-│   └── asr-router/         # Pipeline construction & routing
+│   ├── voxmux-core/        # Common traits, types, config, errors
+│   ├── voxmux-audio/       # Audio capture, mixer, output (cpal + ringbuf)
+│   ├── voxmux-engine/      # ASR plugin host + whisper integration
+│   ├── voxmux-destination/ # Destination plugin host + discord integration
+│   ├── voxmux-tui/         # TUI (ratatui + crossterm)
+│   └── voxmux-router/      # Pipeline construction & routing
 └── src/main.rs             # Binary entry point
 ```
 
@@ -39,12 +39,12 @@ ASRMixingRouter/
 
 | Crate | Description |
 |-------|-------------|
-| `asr-core` | Shared traits, config schema (TOML), error types, and audio primitives (`AudioChunk`, `RecognitionResult`, etc.) |
-| `asr-audio` | Device enumeration, audio capture via cpal, lock-free SPSC ring buffers (ringbuf), N-to-1 mixer, and speaker output |
-| `asr-engine` | `AsrEngine` trait, plugin registry, and whisper-rs integration (feature-gated) |
-| `asr-destination` | `Destination` trait, plugin registry, and Discord integration via serenity (feature-gated) |
-| `asr-tui` | Terminal UI with ratatui + crossterm — dashboard, input/output controls, and log viewer |
-| `asr-router` | Orchestrates the full pipeline: config loading, device setup, ASR dispatch, text routing, and TUI communication |
+| `voxmux-core` | Shared traits, config schema (TOML), error types, and audio primitives (`AudioChunk`, `RecognitionResult`, etc.) |
+| `voxmux-audio` | Device enumeration, audio capture via cpal, lock-free SPSC ring buffers (ringbuf), N-to-1 mixer, and speaker output |
+| `voxmux-engine` | `AsrEngine` trait, plugin registry, and whisper-rs integration (feature-gated) |
+| `voxmux-destination` | `Destination` trait, plugin registry, and Discord integration via serenity (feature-gated) |
+| `voxmux-tui` | Terminal UI with ratatui + crossterm — dashboard, input/output controls, and log viewer |
+| `voxmux-router` | Orchestrates the full pipeline: config loading, device setup, ASR dispatch, text routing, and TUI communication |
 
 ## Core Traits
 

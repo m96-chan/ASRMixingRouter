@@ -1,6 +1,6 @@
 use crate::engine_trait::AsrEngine;
 use crate::registry::PluginRegistry;
-use asr_core::{AsrError, AudioChunk, RecognitionResult};
+use voxmux_core::{AsrError, AudioChunk, RecognitionResult};
 use tokio::sync::mpsc;
 
 struct PendingInput {

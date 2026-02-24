@@ -1,11 +1,11 @@
 [workspace]
 members = [
-    "crates/asr-core",
-    "crates/asr-audio",
-    "crates/asr-engine",
-    "crates/asr-destination",
-    "crates/asr-tui",
-    "crates/asr-router",
+    "crates/voxmux-core",
+    "crates/voxmux-audio",
+    "crates/voxmux-engine",
+    "crates/voxmux-destination",
+    "crates/voxmux-tui",
+    "crates/voxmux-router",
 ]
 resolver = "2"
 
@@ -24,22 +24,22 @@ regex = "1"
 async-trait = "0.1"
 
 # Internal crates
-asr-core = { path = "crates/asr-core" }
-asr-audio = { path = "crates/asr-audio" }
-asr-engine = { path = "crates/asr-engine" }
-asr-destination = { path = "crates/asr-destination" }
-asr-tui = { path = "crates/asr-tui" }
-asr-router = { path = "crates/asr-router" }
+voxmux-core = { path = "crates/voxmux-core" }
+voxmux-audio = { path = "crates/voxmux-audio" }
+voxmux-engine = { path = "crates/voxmux-engine" }
+voxmux-destination = { path = "crates/voxmux-destination" }
+voxmux-tui = { path = "crates/voxmux-tui" }
+voxmux-router = { path = "crates/voxmux-router" }
 
 [package]
-name = "asr-mixing-router"
+name = "voxmux"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-asr-core = { workspace = true }
-asr-audio = { workspace = true }
-asr-engine = { workspace = true }
+voxmux-core = { workspace = true }
+voxmux-audio = { workspace = true }
+voxmux-engine = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

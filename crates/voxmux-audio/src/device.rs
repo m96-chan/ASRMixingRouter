@@ -1,4 +1,4 @@
-use asr_core::AudioError;
+use voxmux_core::AudioError;
 use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::{Device, Host};
 

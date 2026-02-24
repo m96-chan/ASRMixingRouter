@@ -3,7 +3,7 @@ use ringbuf::HeapRb;
 
 #[test]
 fn test_passthrough_pipeline() {
-    let (mut prod, mut cons) = asr_audio::create_ring_buffer(4096);
+    let (mut prod, mut cons) = voxmux_audio::create_ring_buffer(4096);
 
     // Simulate a sine-wave-like signal
     let signal: Vec<f32> = (0..1000)
@@ -22,8 +22,8 @@ fn test_passthrough_pipeline() {
 
 #[test]
 fn test_multi_input_mix_to_output_buffer() {
-    let (out_prod, mut out_cons) = asr_audio::create_ring_buffer(8192);
-    let mut mixer = asr_audio::Mixer::new(out_prod, 512);
+    let (out_prod, mut out_cons) = voxmux_audio::create_ring_buffer(8192);
+    let mut mixer = voxmux_audio::Mixer::new(out_prod, 512);
 
     // 3 inputs with different volumes/mute states
     let (mut prod_a, cons_a) = HeapRb::<f32>::new(4096).split();
@@ -78,8 +78,8 @@ fn test_mixer_with_threaded_producers() {
     use std::sync::Arc;
     use std::time::Duration;
 
-    let (out_prod, mut out_cons) = asr_audio::create_ring_buffer(16384);
-    let mut mixer = asr_audio::Mixer::new(out_prod, 512);
+    let (out_prod, mut out_cons) = voxmux_audio::create_ring_buffer(16384);
+    let mut mixer = voxmux_audio::Mixer::new(out_prod, 512);
 
     // Create 3 producer→consumer pairs
     let mut producer_handles = Vec::new();

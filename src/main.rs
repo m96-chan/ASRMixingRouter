@@ -5,7 +5,7 @@ use std::time::Duration;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
-#[command(name = "asr-mixing-router", about = "Audio mixing router with ASR")]
+#[command(name = "voxmux", about = "Audio mixing router with ASR")]
 struct Cli {
     /// Path to the configuration file
     #[arg(short, long, default_value = "config.toml")]
@@ -16,7 +16,7 @@ struct Cli {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let config = asr_core::AppConfig::load_from_file(&cli.config)
+    let config = voxmux_core::AppConfig::load_from_file(&cli.config)
         .with_context(|| format!("failed to load config from {:?}", cli.config))?;
 
     // Initialize tracing
@@ -27,9 +27,9 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    tracing::info!("ASRMixingRouter starting");
+    tracing::info!("voxmux starting");
 
-    let device_manager = asr_audio::DeviceManager::new();
+    let device_manager = voxmux_audio::DeviceManager::new();
 
     // Get output device
     tracing::info!("using output device: {}", config.output.device_name);
@@ -48,10 +48,10 @@ async fn main() -> Result<()> {
 
     // Output ring buffer: ~2 seconds of audio
     let ring_capacity = (sample_rate as usize) * (channels as usize) * 2;
-    let (out_producer, out_consumer) = asr_audio::create_ring_buffer(ring_capacity);
+    let (out_producer, out_consumer) = voxmux_audio::create_ring_buffer(ring_capacity);
 
     // Create mixer with output producer
-    let mut mixer = asr_audio::Mixer::new(out_producer, buffer_size as usize);
+    let mut mixer = voxmux_audio::Mixer::new(out_producer, buffer_size as usize);
 
     // Create a CaptureNode + ring buffer for each enabled input
     let enabled_inputs: Vec<_> = config.input.iter().filter(|i| i.enabled).collect();
@@ -64,8 +64,8 @@ async fn main() -> Result<()> {
     let mut tap_senders = std::collections::HashMap::new();
 
     if let Some(ref asr_config) = config.asr {
-        let registry = asr_engine::PluginRegistry::new();
-        let mut host = asr_engine::AsrHost::new();
+        let registry = voxmux_engine::PluginRegistry::new();
+        let mut host = voxmux_engine::AsrHost::new();
 
         for input_cfg in &enabled_inputs {
             let engine_config = match asr_config.engine.as_str() {
@@ -133,13 +133,13 @@ async fn main() -> Result<()> {
                 )
             })?;
 
-        let (in_prod, in_cons) = asr_audio::create_ring_buffer(ring_capacity);
+        let (in_prod, in_cons) = voxmux_audio::create_ring_buffer(ring_capacity);
 
         let _handle = mixer.add_input(&input_cfg.id, in_cons, input_cfg.volume, input_cfg.muted);
 
         let asr_tap = tap_senders.remove(&input_cfg.id);
 
-        let capture = asr_audio::CaptureNode::new(
+        let capture = voxmux_audio::CaptureNode::new(
             &input_device,
             in_prod,
             sample_rate,
@@ -153,7 +153,7 @@ async fn main() -> Result<()> {
     }
 
     // Start output node
-    let _output = asr_audio::OutputNode::new(
+    let _output = voxmux_audio::OutputNode::new(
         &output_device,
         out_consumer,
         sample_rate,

@@ -3,10 +3,10 @@ pub mod device;
 pub mod mixer;
 pub mod output;
 
-pub use capture::CaptureNode;
+pub use capture::{CaptureHandle, CaptureNode};
 pub use device::DeviceManager;
 pub use mixer::{InputHandle, Mixer, MixerHandle};
-pub use output::OutputNode;
+pub use output::{OutputHandle, OutputNode};
 
 use ringbuf::traits::Split;
 use ringbuf::{HeapCons, HeapProd, HeapRb};

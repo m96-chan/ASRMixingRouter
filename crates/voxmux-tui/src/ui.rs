@@ -45,12 +45,17 @@ fn draw_dashboard(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
+    let has_warnings = !app.state.warnings.is_empty();
     let constraints: Vec<Constraint> = app
         .state
         .inputs
         .iter()
         .map(|_| Constraint::Length(2))
-        .chain(std::iter::once(Constraint::Fill(1)))
+        .chain(if has_warnings {
+            vec![Constraint::Length(3 + app.state.warnings.len() as u16), Constraint::Fill(1)]
+        } else {
+            vec![Constraint::Fill(1)]
+        })
         .collect();
 
     let areas = Layout::vertical(constraints).split(area);
@@ -67,6 +72,20 @@ fn draw_dashboard(frame: &mut Frame, app: &App, area: Rect) {
             .gauge_style(Style::default().fg(if input.muted { Color::DarkGray } else { Color::Green }))
             .ratio(ratio);
         frame.render_widget(gauge, areas[i]);
+    }
+
+    // Warnings panel (if any)
+    if has_warnings {
+        let warn_idx = app.state.inputs.len();
+        let warn_items: Vec<ListItem> = app
+            .state
+            .warnings
+            .iter()
+            .map(|s| ListItem::new(Span::styled(s.as_str(), Style::default().fg(Color::Red))))
+            .collect();
+        let warn_list = List::new(warn_items)
+            .block(Block::default().borders(Borders::ALL).title("Warnings"));
+        frame.render_widget(warn_list, areas[warn_idx]);
     }
 
     // Remaining area: recent recognitions
@@ -203,6 +222,7 @@ mod tests {
                     volume: 0.8,
                     muted: false,
                     peak_level: 0.6,
+                    ..Default::default()
                 },
                 InputState {
                     id: "mic2".into(),
@@ -211,6 +231,7 @@ mod tests {
                     volume: 0.5,
                     muted: false,
                     peak_level: 0.3,
+                    ..Default::default()
                 },
             ],
             ..Default::default()
@@ -226,6 +247,76 @@ mod tests {
         assert!(
             text.contains("mic1") && text.contains("mic2"),
             "expected both input ids in dashboard, got:\n{}",
+            text,
+        );
+    }
+
+    #[test]
+    fn test_dashboard_renders_warning() {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+
+        let backend = TestBackend::new(60, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = App::new(Arc::new(Mutex::new(VecDeque::new())));
+        app.update_state(RouterState {
+            inputs: vec![InputState {
+                id: "mic1".into(),
+                device_name: "USB Mic".into(),
+                enabled: true,
+                volume: 0.8,
+                muted: false,
+                peak_level: 0.0,
+                ..Default::default()
+            }],
+            warnings: vec!["Device disconnected: mic2".to_string()],
+            ..Default::default()
+        });
+        app.tab = Tab::Dashboard;
+
+        terminal
+            .draw(|frame| draw(frame, &app))
+            .unwrap();
+
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(
+            text.contains("Device disconnected"),
+            "expected warning text in dashboard, got:\n{}",
+            text,
+        );
+    }
+
+    #[test]
+    fn test_dashboard_renders_recognitions() {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+
+        let backend = TestBackend::new(60, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = App::new(Arc::new(Mutex::new(VecDeque::new())));
+        app.update_state(RouterState {
+            inputs: vec![InputState {
+                id: "mic1".into(),
+                device_name: "USB Mic".into(),
+                enabled: true,
+                volume: 0.8,
+                muted: false,
+                peak_level: 0.0,
+                ..Default::default()
+            }],
+            latest_recognitions: vec!["[mic1] hello world".to_string()],
+            ..Default::default()
+        });
+        app.tab = Tab::Dashboard;
+
+        terminal
+            .draw(|frame| draw(frame, &app))
+            .unwrap();
+
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(
+            text.contains("hello world"),
+            "expected recognition text in dashboard, got:\n{}",
             text,
         );
     }

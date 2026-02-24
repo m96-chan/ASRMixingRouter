@@ -38,13 +38,14 @@ fn test_full_draw_cycle() {
             volume: 0.75,
             muted: false,
             peak_level: 0.4,
+            ..Default::default()
         }],
         output: OutputState {
             device_name: "Test Speakers".into(),
             play_mixed_input: true,
         },
         latest_recognitions: vec!["hello world".to_string()],
-        is_running: true,
+        ..Default::default()
     });
 
     // Draw all 4 tabs — no panics

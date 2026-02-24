@@ -1,7 +1,10 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -19,13 +22,24 @@ async fn main() -> Result<()> {
     let config = voxmux_core::AppConfig::load_from_file(&cli.config)
         .with_context(|| format!("failed to load config from {:?}", cli.config))?;
 
-    // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_new(&config.general.log_level)
-                .unwrap_or_else(|_| EnvFilter::new("info")),
+    // Set up TUI log buffer and layered tracing subscriber
+    let log_buffer = Arc::new(Mutex::new(VecDeque::<String>::new()));
+    let tui_log_layer = voxmux_tui::TuiLogLayer::new(Arc::clone(&log_buffer), 1000);
+
+    let env_filter = EnvFilter::try_new(&config.general.log_level)
+        .unwrap_or_else(|_| EnvFilter::new("info"));
+
+    let subscriber = tracing_subscriber::Registry::default()
+        .with(env_filter)
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_ansi(false),
         )
-        .init();
+        .with(tui_log_layer);
+
+    tracing::subscriber::set_global_default(subscriber)
+        .context("failed to set tracing subscriber")?;
 
     tracing::info!("voxmux starting");
 
@@ -171,6 +185,7 @@ async fn main() -> Result<()> {
 
     // Keep capture nodes alive for the duration of the program
     let mut _captures = Vec::new();
+    let mut input_handles = Vec::new();
 
     for input_cfg in &enabled_inputs {
         tracing::info!(
@@ -192,7 +207,8 @@ async fn main() -> Result<()> {
 
         let (in_prod, in_cons) = voxmux_audio::create_ring_buffer(ring_capacity);
 
-        let _handle = mixer.add_input(&input_cfg.id, in_cons, input_cfg.volume, input_cfg.muted);
+        let handle = mixer.add_input(&input_cfg.id, in_cons, input_cfg.volume, input_cfg.muted);
+        input_handles.push(handle);
 
         let asr_tap = tap_senders.remove(&input_cfg.id);
 
@@ -230,11 +246,89 @@ async fn main() -> Result<()> {
     // Start mixer thread (1ms poll interval)
     let mixer_handle = mixer.start(Duration::from_millis(1));
 
-    tracing::info!("mixer active — press Ctrl+C to stop");
+    // Set up TUI communication channels
+    let (state_tx, state_rx) =
+        tokio::sync::watch::channel(voxmux_core::RouterState::default());
+    let (cmd_tx, mut cmd_rx) =
+        tokio::sync::mpsc::unbounded_channel::<voxmux_core::UiCommand>();
 
-    tokio::signal::ctrl_c()
+    // Capture config data needed by the state broadcast task
+    let input_configs: Vec<_> = enabled_inputs
+        .iter()
+        .map(|i| (i.id.clone(), i.device_name.clone(), i.enabled))
+        .collect();
+    let output_device_name = config.output.device_name.clone();
+    let play_mixed_input = config.output.play_mixed_input;
+
+    // Spawn state broadcast task (~30Hz)
+    let broadcast_handles = input_handles.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_millis(33));
+        loop {
+            interval.tick().await;
+            let inputs: Vec<voxmux_core::InputState> = broadcast_handles
+                .iter()
+                .zip(input_configs.iter())
+                .map(|(handle, (id, device_name, enabled))| voxmux_core::InputState {
+                    id: id.clone(),
+                    device_name: device_name.clone(),
+                    enabled: *enabled,
+                    volume: handle.volume(),
+                    muted: handle.is_muted(),
+                    peak_level: 0.0, // proper computation deferred to P6
+                })
+                .collect();
+
+            let state = voxmux_core::RouterState {
+                inputs,
+                output: voxmux_core::OutputState {
+                    device_name: output_device_name.clone(),
+                    play_mixed_input,
+                },
+                latest_recognitions: Vec::new(), // populated when ASR integration deepens
+                is_running: true,
+            };
+
+            if state_tx.send(state).is_err() {
+                break; // TUI closed
+            }
+        }
+    });
+
+    // Spawn command handler task
+    let cmd_handles = input_handles.clone();
+    tokio::spawn(async move {
+        while let Some(cmd) = cmd_rx.recv().await {
+            match cmd {
+                voxmux_core::UiCommand::SetVolume { input_id, volume } => {
+                    if let Some(h) = cmd_handles.iter().find(|h| h.id() == input_id) {
+                        h.set_volume(volume);
+                    }
+                }
+                voxmux_core::UiCommand::SetMuted { input_id, muted } => {
+                    if let Some(h) = cmd_handles.iter().find(|h| h.id() == input_id) {
+                        h.set_muted(muted);
+                    }
+                }
+                voxmux_core::UiCommand::SetEnabled { .. } => {
+                    // No-op in P5 — requires capture node stop/start
+                }
+                voxmux_core::UiCommand::SetPlayMixedInput(_) => {
+                    // No-op in P5 — output control deferred
+                }
+                voxmux_core::UiCommand::Quit => {
+                    break;
+                }
+            }
+        }
+    });
+
+    tracing::info!("TUI active — press 'q' to quit");
+
+    // Run TUI (blocks until user quits)
+    voxmux_tui::run(state_rx, cmd_tx, log_buffer)
         .await
-        .context("failed to listen for ctrl+c")?;
+        .context("TUI error")?;
 
     tracing::info!("shutting down");
     mixer_handle.stop();

@@ -22,6 +22,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "4.5", features = ["derive"] }
 regex = "1"
 async-trait = "0.1"
+ratatui = "0.29"
+crossterm = "0.28"
 
 # Internal crates
 voxmux-core = { path = "crates/voxmux-core" }
@@ -41,6 +43,7 @@ voxmux-core = { workspace = true }
 voxmux-audio = { workspace = true }
 voxmux-engine = { workspace = true }
 voxmux-destination = { workspace = true }
+voxmux-tui = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

@@ -19,6 +19,13 @@ muted = false
 # prefix = "[Main] "
 # channel_id = 123456789
 
+[[input]]
+id = "radio_1"
+device_name = "default"
+enabled = false
+volume = 0.8
+muted = false
+
 # [asr]
 # engine = "whisper"
 

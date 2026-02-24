@@ -1,9 +1,11 @@
 pub mod capture;
 pub mod device;
+pub mod mixer;
 pub mod output;
 
 pub use capture::CaptureNode;
 pub use device::DeviceManager;
+pub use mixer::{InputHandle, Mixer, MixerHandle};
 pub use output::OutputNode;
 
 use ringbuf::traits::Split;

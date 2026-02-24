@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use std::path::PathBuf;
+use std::time::Duration;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -30,19 +31,6 @@ async fn main() -> Result<()> {
 
     let device_manager = asr_audio::DeviceManager::new();
 
-    // Get input device (first configured input, or default)
-    let input_device = if let Some(input_cfg) = config.input.first() {
-        tracing::info!("using input device: {}", input_cfg.device_name);
-        device_manager
-            .get_input_device(&input_cfg.device_name)
-            .with_context(|| format!("failed to get input device: {}", input_cfg.device_name))?
-    } else {
-        tracing::info!("no input configured, using default input device");
-        device_manager
-            .get_input_device("default")
-            .context("failed to get default input device")?
-    };
-
     // Get output device
     tracing::info!("using output device: {}", config.output.device_name);
     let output_device = device_manager
@@ -58,41 +46,85 @@ async fn main() -> Result<()> {
     let channels: u16 = 1;
     let buffer_size = config.general.buffer_size;
 
-    // Ring buffer capacity: ~2 seconds of audio
+    // Output ring buffer: ~2 seconds of audio
     let ring_capacity = (sample_rate as usize) * (channels as usize) * 2;
-    let (producer, consumer) = asr_audio::create_ring_buffer(ring_capacity);
+    let (out_producer, out_consumer) = asr_audio::create_ring_buffer(ring_capacity);
 
-    tracing::info!(
-        "creating passthrough pipeline: {}Hz, {} ch, buffer={}",
-        sample_rate,
-        channels,
-        buffer_size,
-    );
+    // Create mixer with output producer
+    let mut mixer = asr_audio::Mixer::new(out_producer, buffer_size as usize);
 
-    let _capture = asr_audio::CaptureNode::new(
-        &input_device,
-        producer,
-        sample_rate,
-        channels,
-        buffer_size,
-    )
-    .context("failed to create capture node")?;
+    // Create a CaptureNode + ring buffer for each enabled input
+    let enabled_inputs: Vec<_> = config.input.iter().filter(|i| i.enabled).collect();
+    if enabled_inputs.is_empty() {
+        tracing::warn!("no enabled inputs configured");
+    }
 
+    // Keep capture nodes alive for the duration of the program
+    let mut _captures = Vec::new();
+
+    for input_cfg in &enabled_inputs {
+        tracing::info!(
+            "adding input '{}' (device: {}, vol: {}, muted: {})",
+            input_cfg.id,
+            input_cfg.device_name,
+            input_cfg.volume,
+            input_cfg.muted,
+        );
+
+        let input_device = device_manager
+            .get_input_device(&input_cfg.device_name)
+            .with_context(|| {
+                format!(
+                    "failed to get input device '{}' for input '{}'",
+                    input_cfg.device_name, input_cfg.id
+                )
+            })?;
+
+        let (in_prod, in_cons) = asr_audio::create_ring_buffer(ring_capacity);
+
+        let _handle = mixer.add_input(&input_cfg.id, in_cons, input_cfg.volume, input_cfg.muted);
+
+        let capture = asr_audio::CaptureNode::new(
+            &input_device,
+            in_prod,
+            sample_rate,
+            channels,
+            buffer_size,
+        )
+        .with_context(|| format!("failed to create capture node for '{}'", input_cfg.id))?;
+
+        _captures.push(capture);
+    }
+
+    // Start output node
     let _output = asr_audio::OutputNode::new(
         &output_device,
-        consumer,
+        out_consumer,
         sample_rate,
         channels,
         buffer_size,
     )
     .context("failed to create output node")?;
 
-    tracing::info!("passthrough active — press Ctrl+C to stop");
+    tracing::info!(
+        "mixing {} input(s) → output at {}Hz, {} ch, buffer={}",
+        enabled_inputs.len(),
+        sample_rate,
+        channels,
+        buffer_size,
+    );
+
+    // Start mixer thread (1ms poll interval)
+    let mixer_handle = mixer.start(Duration::from_millis(1));
+
+    tracing::info!("mixer active — press Ctrl+C to stop");
 
     tokio::signal::ctrl_c()
         .await
         .context("failed to listen for ctrl+c")?;
 
     tracing::info!("shutting down");
+    mixer_handle.stop();
+
     Ok(())
 }

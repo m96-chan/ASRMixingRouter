@@ -40,6 +40,7 @@ edition = "2021"
 voxmux-core = { workspace = true }
 voxmux-audio = { workspace = true }
 voxmux-engine = { workspace = true }
+voxmux-destination = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

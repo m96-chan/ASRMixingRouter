@@ -61,6 +61,7 @@ async fn main() -> Result<()> {
 
     // Set up ASR if configured
     let mut asr_host = None;
+    let mut dest_host_handle: Option<voxmux_destination::DestinationHost> = None;
     let mut tap_senders = std::collections::HashMap::new();
 
     if let Some(ref asr_config) = config.asr {
@@ -92,19 +93,75 @@ async fn main() -> Result<()> {
             tap_senders.insert(input_cfg.id.clone(), tap_tx);
         }
 
-        // Spawn result logging task
+        // Set up destination routing for ASR results
         if let Some(result_rx) = host.take_result_receiver() {
-            tokio::spawn(async move {
-                let mut rx = result_rx;
-                while let Some(result) = rx.recv().await {
-                    tracing::info!(
-                        input_id = %result.input_id,
-                        is_final = result.is_final,
-                        "ASR: {}",
-                        result.text,
-                    );
+            let has_destinations = enabled_inputs
+                .iter()
+                .any(|i| !i.destinations.is_empty());
+
+            if has_destinations {
+                let mut dest_host = voxmux_destination::DestinationHost::new(result_rx);
+
+                for input_cfg in &enabled_inputs {
+                    for route_cfg in &input_cfg.destinations {
+                        // Merge global destination config with per-route extra
+                        let mut merged = match config.destinations {
+                            Some(ref dests) => dests
+                                .get(&route_cfg.plugin)
+                                .cloned()
+                                .unwrap_or_else(|| toml::Value::Table(Default::default())),
+                            None => toml::Value::Table(Default::default()),
+                        };
+
+                        // Overlay per-route extra fields
+                        if let (Some(base), Some(extra)) =
+                            (merged.as_table_mut(), route_cfg.extra.as_table())
+                        {
+                            for (k, v) in extra {
+                                base.insert(k.clone(), v.clone());
+                            }
+                        }
+
+                        dest_host
+                            .add_route(
+                                &input_cfg.id,
+                                &route_cfg.plugin,
+                                &route_cfg.prefix,
+                                merged,
+                            )
+                            .await
+                            .with_context(|| {
+                                format!(
+                                    "failed to add destination route '{}' for input '{}'",
+                                    route_cfg.plugin, input_cfg.id
+                                )
+                            })?;
+
+                        tracing::info!(
+                            "routed input '{}' → destination '{}' (prefix: {:?})",
+                            input_cfg.id,
+                            route_cfg.plugin,
+                            route_cfg.prefix,
+                        );
+                    }
                 }
-            });
+
+                dest_host.start();
+                dest_host_handle = Some(dest_host);
+            } else {
+                // Fallback: log ASR results when no destinations configured
+                tokio::spawn(async move {
+                    let mut rx = result_rx;
+                    while let Some(result) = rx.recv().await {
+                        tracing::info!(
+                            input_id = %result.input_id,
+                            is_final = result.is_final,
+                            "ASR: {}",
+                            result.text,
+                        );
+                    }
+                });
+            }
         }
 
         host.start();
@@ -184,6 +241,10 @@ async fn main() -> Result<()> {
 
     if let Some(mut host) = asr_host {
         host.shutdown().await;
+    }
+
+    if let Some(mut dest_host) = dest_host_handle {
+        dest_host.shutdown().await;
     }
 
     Ok(())

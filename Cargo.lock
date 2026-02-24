@@ -1162,6 +1162,7 @@ dependencies = [
  "tracing-subscriber",
  "voxmux-audio",
  "voxmux-core",
+ "voxmux-destination",
  "voxmux-engine",
 ]
 
@@ -1190,6 +1191,14 @@ dependencies = [
 [[package]]
 name = "voxmux-destination"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "tracing",
+ "voxmux-core",
+]
 
 [[package]]
 name = "voxmux-engine"

@@ -59,6 +59,59 @@ async fn main() -> Result<()> {
         tracing::warn!("no enabled inputs configured");
     }
 
+    // Set up ASR if configured
+    let mut asr_host = None;
+    let mut tap_senders = std::collections::HashMap::new();
+
+    if let Some(ref asr_config) = config.asr {
+        let registry = asr_engine::PluginRegistry::new();
+        let mut host = asr_engine::AsrHost::new();
+
+        for input_cfg in &enabled_inputs {
+            let engine_config = match asr_config.engine.as_str() {
+                "whisper" => {
+                    if let Some(ref whisper_cfg) = asr_config.whisper {
+                        toml::Value::try_from(whisper_cfg)
+                            .context("failed to serialize whisper config")?
+                    } else {
+                        toml::Value::Table(Default::default())
+                    }
+                }
+                _ => toml::Value::Table(Default::default()),
+            };
+
+            let tap_tx = host
+                .add_input(&input_cfg.id, &asr_config.engine, engine_config, &registry)
+                .await
+                .with_context(|| {
+                    format!(
+                        "failed to add ASR input '{}' with engine '{}'",
+                        input_cfg.id, asr_config.engine
+                    )
+                })?;
+            tap_senders.insert(input_cfg.id.clone(), tap_tx);
+        }
+
+        // Spawn result logging task
+        if let Some(result_rx) = host.take_result_receiver() {
+            tokio::spawn(async move {
+                let mut rx = result_rx;
+                while let Some(result) = rx.recv().await {
+                    tracing::info!(
+                        input_id = %result.input_id,
+                        is_final = result.is_final,
+                        "ASR: {}",
+                        result.text,
+                    );
+                }
+            });
+        }
+
+        host.start();
+        tracing::info!("ASR engine '{}' active", asr_config.engine);
+        asr_host = Some(host);
+    }
+
     // Keep capture nodes alive for the duration of the program
     let mut _captures = Vec::new();
 
@@ -84,12 +137,15 @@ async fn main() -> Result<()> {
 
         let _handle = mixer.add_input(&input_cfg.id, in_cons, input_cfg.volume, input_cfg.muted);
 
+        let asr_tap = tap_senders.remove(&input_cfg.id);
+
         let capture = asr_audio::CaptureNode::new(
             &input_device,
             in_prod,
             sample_rate,
             channels,
             buffer_size,
+            asr_tap,
         )
         .with_context(|| format!("failed to create capture node for '{}'", input_cfg.id))?;
 
@@ -125,6 +181,10 @@ async fn main() -> Result<()> {
 
     tracing::info!("shutting down");
     mixer_handle.stop();
+
+    if let Some(mut host) = asr_host {
+        host.shutdown().await;
+    }
 
     Ok(())
 }

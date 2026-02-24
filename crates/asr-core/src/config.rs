@@ -1,6 +1,6 @@
 use crate::error::ConfigError;
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 #[derive(Debug, Deserialize, Clone)]
@@ -100,7 +100,7 @@ pub struct AsrConfig {
     pub whisper: Option<WhisperConfig>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct WhisperConfig {
     pub model_path: String,
 

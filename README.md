@@ -201,4 +201,4 @@ Communication between the TUI and the router:
 
 ## License
 
-TBD
+This project is licensed under the [GNU General Public License v3.0](LICENSE).

@@ -1,0 +1,31 @@
+[general]
+log_level = "info"
+sample_rate = 48000
+buffer_size = 1024
+
+[output]
+device_name = "default"
+play_mixed_input = true
+
+[[input]]
+id = "mic_main"
+device_name = "default"
+enabled = true
+volume = 1.0
+muted = false
+
+# [[input.destinations]]
+# plugin = "discord"
+# prefix = "[Main] "
+# channel_id = 123456789
+
+# [asr]
+# engine = "whisper"
+
+# [asr.whisper]
+# model_path = "./models/ggml-base.bin"
+# language = "ja"
+
+# [destinations.discord]
+# token = "${DISCORD_TOKEN}"
+# guild_id = 987654321

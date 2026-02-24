@@ -8,3 +8,4 @@ asr-core = { workspace = true }
 cpal = { workspace = true }
 ringbuf = { workspace = true }
 tracing = { workspace = true }
+tokio = { workspace = true }
